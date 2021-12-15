@@ -1,0 +1,58 @@
+#pragma kernel UpdateTemperature
+#pragma kernel UpdateTexture
+RWStructuredBuffer<float> buffer;
+
+Texture2D<float4> _SourceTexture;
+Texture2D<float4> _UpdateTemperature;
+
+RWTexture2D<float4> _ResultTexture;
+RWTexture2D<float4> _ResultTemperature;
+
+float _DeltaTime;
+float _Scale;
+float _Width;
+float _Height;
+float4 _StartColor;
+float4 _EndColor;
+
+SamplerState _LinearClamp;
+float _Alpha;
+
+[numthreads(8,8,1)]
+void UpdateTemperature(uint2 id : SV_DispatchThreadID)
+{
+    float w = _Width;
+    float h = _Height;
+    float3 px = float3(1.0 / w, 1.0 / h, 0.0);
+    float2 uv = float2(id.x / w, id.y / h) + px.xy * 0.5;
+    float sourceTemp = 1;
+    bool filter_x0 = id.x == w / 2 ;
+    bool filter_x1 = id.x == w - 1 ;
+    bool filter_y0 = id.y == h / 2;
+    bool filter_y1 = id.y == h - 1 ;
+    float ckx =  _DeltaTime / (px.x * px.x);
+    float cky =  _DeltaTime / (px.y * px.y);
+    float temp_old = _UpdateTemperature.SampleLevel(_LinearClamp, uv, 0).x;
+    float x0 =  filter_x0 ? sourceTemp : _UpdateTemperature.SampleLevel(_LinearClamp, uv - px.xz, 0).x;
+    float x1 =  filter_x1 ? sourceTemp : _UpdateTemperature.SampleLevel(_LinearClamp, uv + px.xz, 0).x;
+    float y0 =  filter_y0 ? sourceTemp : _UpdateTemperature.SampleLevel(_LinearClamp, uv - px.zy, 0).x;
+    float y1 =  filter_y1 ? sourceTemp : _UpdateTemperature.SampleLevel(_LinearClamp, uv + px.zy, 0).x;
+    float temp = 1.0 / (1.0 + 2.0 * ckx + 2.0 * cky) * (temp_old + ckx * x0 + ckx * x1 + cky * y0 + cky * y1);
+    _ResultTemperature[id] =  float4(temp,0.0, 0.0, 1.0);
+}
+
+[numthreads(8,8,1)]
+void UpdateTexture(uint2 id : SV_DispatchThreadID)
+{
+    float w = _Width;
+    float h = _Height;
+    float sourceTemp = 1;
+    bool filter_x0 = id.x == w / 2 ;
+    bool filter_x1 = id.x == w - 1 ;
+    bool filter_y0 = id.y == h / 2;
+    bool filter_y1 = id.y == h - 1 ;
+    float3 px = float3(1.0 / w, 1.0 / h, 0.0);
+    float2 uv = (filter_x0  || filter_x1 || filter_y0  ||filter_y1 ) ? sourceTemp : float2(id.x / w, id.y / h) + px.xy * 0.5;
+    float temperature = _UpdateTemperature.SampleLevel(_LinearClamp, uv, 0).x;
+    _ResultTexture[id] =  (1.0- temperature) * _StartColor + temperature * _EndColor;
+}
